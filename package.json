@@ -1,0 +1,27 @@
+{
+  "name": "momentor",
+  "version": "1.0.0",
+  "description": "A momentum investing strategy mentor",
+  "private": true,
+  "scripts": {
+    "start": "docker-compose up --build",
+    "dev": "docker-compose up",
+    "stop": "docker-compose down",
+    "reset-data": "docker-compose down -v && docker volume rm momentor_database_data 2>/dev/null || true",
+    "frontend:install": "cd frontend && npm install",
+    "backend:install": "cd backend && pip install -r requirements.txt",
+    "setup": "npm run frontend:install && npm run backend:install"
+  },
+  "keywords": [
+    "momentum",
+    "investing",
+    "finance",
+    "portfolio",
+    "stocks"
+  ],
+  "author": "Cédric Eugeni",
+  "license": "MIT",
+  "workspaces": [
+    "frontend"
+  ]
+}

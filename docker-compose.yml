@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: momentor-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////app/database/momentor.db
+      - ENABLE_AUTO_SCHEDULING=true
+      - TZ=Europe/Paris
+    volumes:
+      - ./backend:/app
+      - database_data:/app/database
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: momentor-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host
+    depends_on:
+      - backend
+
+volumes:
+  database_data:
+    name: momentor_database_data
