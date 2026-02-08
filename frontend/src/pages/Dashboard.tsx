@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [capital, setCapital] = useState("");
   const [testMode, setTestMode] = useState(false);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [showConfirmRebalance, setShowConfirmRebalance] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -43,6 +44,11 @@ export default function Dashboard() {
     generateMutation.mutate({ mode, capital: capitalValue });
   };
 
+  const handlePortfolioGenerate = () => {
+    generateMutation.mutate({ mode: "manual" });
+    setShowConfirmRebalance(false);
+  };
+
   if (isLoadingPortfolio) {
     return <div>Loading...</div>;
   }
@@ -52,113 +58,135 @@ export default function Dashboard() {
     const totalPnLPositive = (portfolio.total_pnl_usd || 0) >= 0;
 
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-            <p className="text-muted-foreground">
-              Portfolio overview with P&L since {portfolio.validation_date ? formatDate(portfolio.validation_date) : "last rebalancing"}
-            </p>
+      <>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+              <p className="text-muted-foreground">
+                Portfolio overview with P&L since {portfolio.validation_date ? formatDate(portfolio.validation_date) : "last rebalancing"}
+              </p>
+            </div>
+            <Button onClick={() => setShowConfirmRebalance(true)} size="lg">
+              <Rocket className="mr-2 h-4 w-4" />
+              New Rebalancing
+            </Button>
           </div>
-          <Button onClick={() => setShowGenerateDialog(true)} size="lg">
-            <Rocket className="mr-2 h-4 w-4" />
-            New Rebalancing
-          </Button>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Entry Value</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(portfolio.total_entry_value || 0)}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Current Value</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(portfolio.total_current_value || 0)}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Total P&L</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold flex items-center space-x-2 ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>
+                  {totalPnLPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+                  <span>{formatCurrency(portfolio.total_pnl_usd || 0)}</span>
+                </div>
+                <p className={`text-sm ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>{formatPercent(portfolio.total_pnl_percent || 0)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Entry Value</CardTitle>
+              <CardTitle>Current Positions</CardTitle>
+              <CardDescription>Live portfolio tracking</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(portfolio.total_entry_value || 0)}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Current Value</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(portfolio.total_current_value || 0)}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Total P&L</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold flex items-center space-x-2 ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>
-                {totalPnLPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-                <span>{formatCurrency(portfolio.total_pnl_usd || 0)}</span>
-              </div>
-              <p className={`text-sm ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>{formatPercent(portfolio.total_pnl_percent || 0)}</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Current Positions</CardTitle>
-            <CardDescription>Live portfolio tracking</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Symbol</TableHead>
-                  <TableHead>Shares</TableHead>
-                  <TableHead>Entry Price</TableHead>
-                  <TableHead>Current Price</TableHead>
-                  <TableHead>Current Value</TableHead>
-                  <TableHead className="text-right">P&L</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {portfolio.positions?.map((pos) => {
-                  const isPositive = pos.pnl_usd >= 0;
-                  return (
-                    <TableRow key={pos.symbol}>
-                      <TableCell className="font-medium">{pos.symbol}</TableCell>
-                      <TableCell>{pos.shares}</TableCell>
-                      <TableCell>{formatCurrency(pos.entry_price)}</TableCell>
-                      <TableCell>{formatCurrency(pos.current_price)}</TableCell>
-                      <TableCell>{formatCurrency(pos.current_value)}</TableCell>
-                      <TableCell className={`text-right font-medium ${isPositive ? "text-green-600" : "text-red-600"}`}>
-                        {formatCurrency(pos.pnl_usd)} ({formatPercent(pos.pnl_percent)})
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {(portfolio.uninvested_cash || 0) > 0 && (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell className="font-medium">Cash</TableCell>
-                    <TableCell colSpan={3}>Uninvested</TableCell>
-                    <TableCell>{formatCurrency(portfolio.uninvested_cash || 0)}</TableCell>
-                    <TableCell className="text-right">-</TableCell>
+                    <TableHead>Symbol</TableHead>
+                    <TableHead>Shares</TableHead>
+                    <TableHead>Entry Price</TableHead>
+                    <TableHead>Current Price</TableHead>
+                    <TableHead>Current Value</TableHead>
+                    <TableHead className="text-right">P&L</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {portfolio.positions?.map((pos) => {
+                    const isPositive = pos.pnl_usd >= 0;
+                    return (
+                      <TableRow key={pos.symbol}>
+                        <TableCell className="font-medium">{pos.symbol}</TableCell>
+                        <TableCell>{pos.shares}</TableCell>
+                        <TableCell>{formatCurrency(pos.entry_price)}</TableCell>
+                        <TableCell>{formatCurrency(pos.current_price)}</TableCell>
+                        <TableCell>{formatCurrency(pos.current_value)}</TableCell>
+                        <TableCell className={`text-right font-medium ${isPositive ? "text-green-600" : "text-red-600"}`}>
+                          {formatCurrency(pos.pnl_usd)} ({formatPercent(pos.pnl_percent)})
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {(portfolio.uninvested_cash || 0) > 0 && (
+                    <TableRow>
+                      <TableCell className="font-medium">Cash</TableCell>
+                      <TableCell colSpan={3}>Uninvested</TableCell>
+                      <TableCell>{formatCurrency(portfolio.uninvested_cash || 0)}</TableCell>
+                      <TableCell className="text-right">-</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Button className="w-full" onClick={() => navigate("/portfolio")} variant="outline">
-              View Full Portfolio Details
-            </Button>
-            <Button className="w-full" onClick={() => navigate("/runs")} variant="outline">
-              View Rebalancing History
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Button className="w-full" onClick={() => navigate("/portfolio")} variant="outline">
+                View Full Portfolio Details
+              </Button>
+              <Button className="w-full" onClick={() => navigate("/runs")} variant="outline">
+                View Rebalancing History
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Dialog open={showConfirmRebalance} onOpenChange={setShowConfirmRebalance}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Confirm New Rebalancing</DialogTitle>
+              <DialogDescription>This will generate a new recommendation based on your current portfolio value and positions.</DialogDescription>
+            </DialogHeader>
+
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button variant="outline" onClick={() => setShowConfirmRebalance(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handlePortfolioGenerate} disabled={generateMutation.isPending}>
+                {generateMutation.isPending ? "Generating..." : "Confirm"}
+              </Button>
+            </div>
+
+            {generateMutation.isError && <p className="text-sm text-destructive">Error: {(generateMutation.error as Error).message}</p>}
+          </DialogContent>
+        </Dialog>
+      </>
     );
   }
 

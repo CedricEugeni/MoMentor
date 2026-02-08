@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./index.css";
 
 import { cleanupExpiredConfirmations } from "./lib/localStorage";
+import { applyTheme, getThemePreference } from "./lib/theme";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Runs from "./pages/Runs";
@@ -18,6 +19,33 @@ function App() {
   useEffect(() => {
     // Cleanup expired localStorage entries on mount
     cleanupExpiredConfirmations();
+
+    const applyCurrentTheme = () => applyTheme(getThemePreference());
+    applyCurrentTheme();
+
+    const onThemeChange = () => applyCurrentTheme();
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onMediaChange = () => {
+      if (getThemePreference() === "system") {
+        applyCurrentTheme();
+      }
+    };
+
+    window.addEventListener("momentor-theme-change", onThemeChange);
+    if (media.addEventListener) {
+      media.addEventListener("change", onMediaChange);
+    } else {
+      media.addListener(onMediaChange);
+    }
+
+    return () => {
+      window.removeEventListener("momentor-theme-change", onThemeChange);
+      if (media.removeEventListener) {
+        media.removeEventListener("change", onMediaChange);
+      } else {
+        media.removeListener(onMediaChange);
+      }
+    };
   }, []);
 
   return (

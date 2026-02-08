@@ -1,14 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { resetDatabase } from "@/lib/api";
 import { clearAllPendingConfirmations } from "@/lib/localStorage";
+import { applyTheme, getThemePreference, setThemePreference, ThemePreference } from "@/lib/theme";
 import { AlertTriangle } from "lucide-react";
 
 export default function Settings() {
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>("system");
+
+  useEffect(() => {
+    const current = getThemePreference();
+    setThemePreferenceState(current);
+    applyTheme(current);
+  }, []);
 
   const resetMutation = useMutation({
     mutationFn: resetDatabase,
@@ -20,12 +28,38 @@ export default function Settings() {
     },
   });
 
+  const handleThemeChange = (value: ThemePreference) => {
+    setThemePreferenceState(value);
+    setThemePreference(value);
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
         <p className="text-muted-foreground">Manage application settings and data</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Appearance</CardTitle>
+          <CardDescription>Choose how the app looks on your device</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button variant={themePreference === "light" ? "default" : "outline"} onClick={() => handleThemeChange("light")}>
+              Light
+            </Button>
+            <Button variant={themePreference === "dark" ? "default" : "outline"} onClick={() => handleThemeChange("dark")}>
+              Dark
+            </Button>
+            <Button variant={themePreference === "system" ? "default" : "outline"} onClick={() => handleThemeChange("system")}>
+              Auto (System)
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">Auto follows your system theme.</p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

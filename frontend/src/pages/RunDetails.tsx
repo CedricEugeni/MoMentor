@@ -349,6 +349,20 @@ export default function RunDetails() {
             <DialogDescription>Enter the actual number of shares and average price you paid for each position</DialogDescription>
           </DialogHeader>
 
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+            <p className="font-medium">Recommended allocations</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {run.recommendations.map((rec) => (
+                <div key={rec.symbol} className="flex items-center justify-between">
+                  <span className="font-medium">{rec.symbol}</span>
+                  <span className="text-muted-foreground">
+                    {(rec.target_percentage * 100).toFixed(2)}% ({formatCurrency(rec.target_amount_usd)})
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-4">
             {Object.keys(positions).map((symbol) => (
               <div key={symbol} className="grid grid-cols-3 gap-4 items-end">
