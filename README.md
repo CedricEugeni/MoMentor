@@ -42,6 +42,8 @@ MoMentor is a momentum investing strategy mentor for US stocks. It generates mon
 
 ```bash
 npm run dev
+# or directly
+docker compose up
 ```
 
 2. **Open the app**
