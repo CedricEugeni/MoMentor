@@ -1,6 +1,6 @@
 """Rebalancing service for calculating optimized moves"""
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,7 @@ class CashflowMove:
     """Move with cash flow (sell then buy)"""
     symbol: str
     action: str  # SELL or BUY
-    suggested_shares: int
+    suggested_shares: Decimal
     suggested_value_usd: Decimal
     order_index: int
 
@@ -23,8 +23,8 @@ class SwapMove:
     """Move with direct swap"""
     from_symbol: Optional[str]
     to_symbol: Optional[str]
-    swap_shares_from: Optional[int]
-    swap_shares_to: Optional[int]
+    swap_shares_from: Optional[Decimal]
+    swap_shares_to: Optional[Decimal]
     swap_value_usd: Decimal
     order_index: int
     description: str
@@ -32,9 +32,53 @@ class SwapMove:
 
 class RebalancingService:
     """Service for calculating rebalancing moves"""
+
+    SHARE_STEP = Decimal("0.0001")
+    USD_STEP = Decimal("0.01")
     
     def __init__(self, db: Session):
         self.db = db
+
+    def _quantize_shares(self, shares: Decimal) -> Decimal:
+        if shares <= 0:
+            return Decimal("0.0000")
+        return shares.quantize(self.SHARE_STEP, rounding=ROUND_DOWN)
+
+    def _quantize_usd(self, amount: Decimal) -> Decimal:
+        return amount.quantize(self.USD_STEP)
+
+    def _shares_to_decimal(self, shares) -> Decimal:
+        return Decimal(str(shares))
+
+    def _format_shares(self, shares: Decimal) -> str:
+        formatted = f"{shares:.4f}".rstrip("0").rstrip(".")
+        return formatted or "0"
+
+    def estimate_target_residual_cash(
+        self,
+        target_allocations: List[Allocation],
+        current_prices: Dict[str, Decimal],
+        total_capital: Decimal
+    ) -> Decimal:
+        """Estimate cash that cannot be invested due to share quantization or missing prices."""
+        residual = Decimal("0")
+
+        for allocation in target_allocations:
+            target_value = total_capital * allocation.percentage
+            price = current_prices.get(allocation.symbol, Decimal("0"))
+
+            if price <= 0:
+                residual += target_value
+                continue
+
+            target_shares = self._quantize_shares(target_value / price)
+            invested_value = target_shares * price
+            residual += target_value - invested_value
+
+        if residual < 0:
+            residual = Decimal("0")
+
+        return self._quantize_usd(residual)
     
     def calculate_cashflow_moves(
         self,
@@ -62,8 +106,10 @@ class RebalancingService:
         # Build current holdings map
         current_holdings = {
             pos.symbol: {
-                "shares": pos.actual_shares,
-                "value": Decimal(pos.actual_shares) * current_prices.get(pos.symbol, pos.actual_avg_price_usd)
+                "shares": self._shares_to_decimal(pos.actual_shares),
+                "value": self._quantize_usd(
+                    self._shares_to_decimal(pos.actual_shares) * current_prices.get(pos.symbol, pos.actual_avg_price_usd)
+                )
             }
             for pos in previous_positions
         }
@@ -74,10 +120,10 @@ class RebalancingService:
             target_value = total_capital * allocation.percentage
             price = current_prices.get(allocation.symbol, Decimal("0"))
             if price > 0:
-                target_shares = int(target_value / price)
+                target_shares = self._quantize_shares(target_value / price)
                 target_holdings[allocation.symbol] = {
                     "shares": target_shares,
-                    "value": Decimal(target_shares) * price
+                    "value": self._quantize_usd(target_shares * price)
                 }
         
         # Phase 1: Generate SELL moves for positions to reduce or eliminate
@@ -99,7 +145,7 @@ class RebalancingService:
                 # Sell partial position
                 shares_to_sell = current["shares"] - target["shares"]
                 price = current_prices.get(symbol, Decimal("0"))
-                value = Decimal(shares_to_sell) * price
+                value = self._quantize_usd(shares_to_sell * price)
                 moves.append(CashflowMove(
                     symbol=symbol,
                     action="SELL",
@@ -127,7 +173,7 @@ class RebalancingService:
                 # Buy additional shares
                 shares_to_buy = target["shares"] - current["shares"]
                 price = current_prices.get(symbol, Decimal("0"))
-                value = Decimal(shares_to_buy) * price
+                value = self._quantize_usd(shares_to_buy * price)
                 moves.append(CashflowMove(
                     symbol=symbol,
                     action="BUY",
@@ -165,8 +211,10 @@ class RebalancingService:
         # Build current and target holdings
         current_holdings = {
             pos.symbol: {
-                "shares": pos.actual_shares,
-                "value": Decimal(pos.actual_shares) * current_prices.get(pos.symbol, pos.actual_avg_price_usd)
+                "shares": self._shares_to_decimal(pos.actual_shares),
+                "value": self._quantize_usd(
+                    self._shares_to_decimal(pos.actual_shares) * current_prices.get(pos.symbol, pos.actual_avg_price_usd)
+                )
             }
             for pos in previous_positions
         }
@@ -176,10 +224,10 @@ class RebalancingService:
             target_value = total_capital * allocation.percentage
             price = current_prices.get(allocation.symbol, Decimal("0"))
             if price > 0:
-                target_shares = int(target_value / price)
+                target_shares = self._quantize_shares(target_value / price)
                 target_holdings[allocation.symbol] = {
                     "shares": target_shares,
-                    "value": Decimal(target_shares) * price
+                    "value": self._quantize_usd(target_shares * price)
                 }
         
         # Identify excess (to sell) and deficit (to buy)
@@ -188,16 +236,16 @@ class RebalancingService:
         
         # Find positions to reduce or eliminate
         for symbol, current in current_holdings.items():
-            target = target_holdings.get(symbol, {"shares": 0, "value": Decimal("0")})
+            target = target_holdings.get(symbol, {"shares": Decimal("0.0000"), "value": Decimal("0")})
             if current["shares"] > target["shares"]:
                 diff_shares = current["shares"] - target["shares"]
                 price = current_prices.get(symbol, Decimal("0"))
-                diff_value = Decimal(diff_shares) * price
+                diff_value = self._quantize_usd(diff_shares * price)
                 excess.append((symbol, diff_shares, diff_value))
         
         # Find positions to increase or create
         for symbol, target in target_holdings.items():
-            current = current_holdings.get(symbol, {"shares": 0, "value": Decimal("0")})
+            current = current_holdings.get(symbol, {"shares": Decimal("0.0000"), "value": Decimal("0")})
             if target["shares"] > current["shares"]:
                 diff_shares = target["shares"] - current["shares"]
                 diff_value = target["value"] - current["value"]
@@ -218,7 +266,10 @@ class RebalancingService:
                     swap_shares_to=to_shares,
                     swap_value_usd=min(from_value, to_value),
                     order_index=order_index,
-                    description=f"Vendre {from_shares} {from_symbol} → Acheter {to_shares} {to_symbol}"
+                    description=(
+                        f"Vendre {self._format_shares(from_shares)} {from_symbol} "
+                        f"→ Acheter {self._format_shares(to_shares)} {to_symbol}"
+                    )
                 ))
                 order_index += 1
             else:
@@ -230,7 +281,7 @@ class RebalancingService:
                     swap_shares_to=None,
                     swap_value_usd=from_value,
                     order_index=order_index,
-                    description=f"Vendre {from_shares} {from_symbol}"
+                    description=f"Vendre {self._format_shares(from_shares)} {from_symbol}"
                 ))
                 order_index += 1
         
@@ -243,7 +294,7 @@ class RebalancingService:
                 swap_shares_to=to_shares,
                 swap_value_usd=to_value,
                 order_index=order_index,
-                description=f"Acheter {to_shares} {to_symbol}"
+                description=f"Acheter {self._format_shares(to_shares)} {to_symbol}"
             ))
             order_index += 1
         

@@ -35,6 +35,10 @@ class AlgorithmRun(Base):
     trigger_type = Column(SQLEnum(TriggerType), nullable=False)
     total_capital_usd = Column(Numeric(precision=15, scale=2), nullable=False)
     uninvested_cash_usd = Column(Numeric(precision=15, scale=2), nullable=False, default=0)
+    input_currency = Column(String(3), nullable=False, default="USD")
+    fx_rate_to_usd = Column(Numeric(precision=12, scale=6), nullable=False, default=1)
+    fx_rate_timestamp_utc = Column(DateTime, nullable=True)
+    allocation_residual_cash_usd = Column(Numeric(precision=15, scale=2), nullable=False, default=0)
     status = Column(SQLEnum(RunStatus), nullable=False, default=RunStatus.PENDING)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     
@@ -68,7 +72,7 @@ class OptimizedMoveCashflow(Base):
     run_id = Column(Integer, ForeignKey("algorithm_runs.id"), nullable=False)
     symbol = Column(String(10), nullable=False)
     action = Column(SQLEnum(MoveAction), nullable=False)
-    suggested_shares = Column(Integer, nullable=False)
+    suggested_shares = Column(Numeric(precision=18, scale=4), nullable=False)
     suggested_value_usd = Column(Numeric(precision=15, scale=2), nullable=False)
     order_index = Column(Integer, nullable=False)
     
@@ -84,8 +88,8 @@ class OptimizedMoveSwap(Base):
     run_id = Column(Integer, ForeignKey("algorithm_runs.id"), nullable=False)
     from_symbol = Column(String(10), nullable=True)  # None if pure buy
     to_symbol = Column(String(10), nullable=True)  # None if pure sell
-    swap_shares_from = Column(Integer, nullable=True)
-    swap_shares_to = Column(Integer, nullable=True)
+    swap_shares_from = Column(Numeric(precision=18, scale=4), nullable=True)
+    swap_shares_to = Column(Numeric(precision=18, scale=4), nullable=True)
     swap_value_usd = Column(Numeric(precision=15, scale=2), nullable=False)
     order_index = Column(Integer, nullable=False)
     
@@ -100,7 +104,7 @@ class ActualPosition(Base):
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(Integer, ForeignKey("algorithm_runs.id"), nullable=False)
     symbol = Column(String(10), nullable=False)
-    actual_shares = Column(Integer, nullable=False)
+    actual_shares = Column(Numeric(precision=18, scale=4), nullable=False)
     actual_avg_price_usd = Column(Numeric(precision=15, scale=4), nullable=False)
     total_value_usd = Column(Numeric(precision=15, scale=2), nullable=False)
     first_validation_date = Column(DateTime, nullable=False)

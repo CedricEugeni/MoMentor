@@ -17,7 +17,8 @@ from app.services.rebalancing import RebalancingService
 def generate_algorithm_run(
     db: Session,
     mode: str,  # "monthly", "manual", "test"
-    manual_capital: Optional[Decimal] = None
+    manual_capital: Optional[Decimal] = None,
+    capital_currency: str = "USD"
 ) -> AlgorithmRun:
     """
     Generate a new algorithm run with recommendations and optimized moves
@@ -38,12 +39,29 @@ def generate_algorithm_run(
     else:
         trigger_type = TriggerType.MANUAL
     
+    market_data_service = MarketDataService(db)
+
+    fx_rate_to_usd = Decimal("1")
+    fx_rate_timestamp_utc = datetime.utcnow()
+    input_currency = (capital_currency or "USD").upper()
+
+    try:
+        fx_rate_to_usd = market_data_service.get_eur_usd_rate()
+        fx_rate_timestamp_utc = datetime.utcnow()
+    except Exception:
+        if (capital_currency or "USD").upper() == "EUR" and manual_capital is not None:
+            raise ValueError("EUR/USD exchange rate is currently unavailable. Please retry in a few minutes.")
+
     # Calculate capital for this run
     portfolio_service = PortfolioService(db)
     
     if manual_capital is not None:
         # Use provided capital (first run or manual override)
-        total_capital = manual_capital
+        if input_currency == "EUR":
+            total_capital = (manual_capital * fx_rate_to_usd).quantize(Decimal("0.01"))
+        else:
+            total_capital = manual_capital
+
         uninvested_cash = Decimal("0")
     else:
         # Calculate from previous run
@@ -67,6 +85,10 @@ def generate_algorithm_run(
         trigger_type=trigger_type,
         total_capital_usd=total_capital,
         uninvested_cash_usd=uninvested_cash,
+        input_currency=input_currency,
+        fx_rate_to_usd=fx_rate_to_usd,
+        fx_rate_timestamp_utc=fx_rate_timestamp_utc,
+        allocation_residual_cash_usd=Decimal("0"),
         status=RunStatus.PENDING
     )
     db.add(run)
@@ -101,7 +123,6 @@ def generate_algorithm_run(
         all_symbols.update([pos.symbol for pos in previous_positions])
     
     # Fetch current prices
-    market_data_service = MarketDataService(db)
     try:
         current_prices = market_data_service.get_quotes(list(all_symbols))
     except Exception as e:
@@ -111,6 +132,12 @@ def generate_algorithm_run(
     
     # Calculate optimized moves (cashflow and swaps)
     rebalancing_service = RebalancingService(db)
+
+    run.allocation_residual_cash_usd = rebalancing_service.estimate_target_residual_cash(
+        target_allocations=allocations,
+        current_prices=current_prices,
+        total_capital=total_capital
+    )
     
     # Cashflow moves
     cashflow_moves = rebalancing_service.calculate_cashflow_moves(

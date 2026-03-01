@@ -9,7 +9,8 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { generateRun, getCurrentPortfolio } from "@/lib/api";
-import { formatCurrency, formatPercent, formatDate } from "@/lib/utils";
+import { useCurrencyPreference } from "@/lib/currency";
+import { formatCurrency, formatPercent, formatDate, formatShares } from "@/lib/utils";
 import { Rocket, TrendingUp, TrendingDown } from "lucide-react";
 
 export default function Dashboard() {
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [testMode, setTestMode] = useState(false);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [showConfirmRebalance, setShowConfirmRebalance] = useState(false);
+  const { currency } = useCurrencyPreference();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -28,7 +30,8 @@ export default function Dashboard() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: (data: { mode: string; capital?: number }) => generateRun(data.mode, data.capital),
+    mutationFn: (data: { mode: string; capital?: number; capitalCurrency: "USD" | "EUR" }) =>
+      generateRun(data.mode, data.capital, data.capitalCurrency),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["runs"] });
       queryClient.invalidateQueries({ queryKey: ["pendingRuns"] });
@@ -41,11 +44,11 @@ export default function Dashboard() {
   const handleGenerate = () => {
     const capitalValue = capital ? parseFloat(capital) : undefined;
     const mode = testMode ? "test" : "manual";
-    generateMutation.mutate({ mode, capital: capitalValue });
+    generateMutation.mutate({ mode, capital: capitalValue, capitalCurrency: currency });
   };
 
   const handlePortfolioGenerate = () => {
-    generateMutation.mutate({ mode: "manual" });
+    generateMutation.mutate({ mode: "manual", capitalCurrency: currency });
     setShowConfirmRebalance(false);
   };
 
@@ -56,6 +59,7 @@ export default function Dashboard() {
   // If portfolio exists, show portfolio dashboard
   if (portfolio?.has_portfolio) {
     const totalPnLPositive = (portfolio.total_pnl_usd || 0) >= 0;
+    const portfolioFxRate = portfolio.fx_rate_to_usd || 1;
 
     return (
       <>
@@ -79,7 +83,9 @@ export default function Dashboard() {
                 <CardTitle className="text-sm font-medium">Entry Value</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(portfolio.total_entry_value || 0)}</div>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(portfolio.total_entry_value || 0, { fxRateToUsd: portfolioFxRate, currency })}
+                </div>
               </CardContent>
             </Card>
 
@@ -88,7 +94,9 @@ export default function Dashboard() {
                 <CardTitle className="text-sm font-medium">Current Value</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(portfolio.total_current_value || 0)}</div>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(portfolio.total_current_value || 0, { fxRateToUsd: portfolioFxRate, currency })}
+                </div>
               </CardContent>
             </Card>
 
@@ -99,7 +107,7 @@ export default function Dashboard() {
               <CardContent>
                 <div className={`text-2xl font-bold flex items-center space-x-2 ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>
                   {totalPnLPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-                  <span>{formatCurrency(portfolio.total_pnl_usd || 0)}</span>
+                  <span>{formatCurrency(portfolio.total_pnl_usd || 0, { fxRateToUsd: portfolioFxRate, currency })}</span>
                 </div>
                 <p className={`text-sm ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>{formatPercent(portfolio.total_pnl_percent || 0)}</p>
               </CardContent>
@@ -129,12 +137,12 @@ export default function Dashboard() {
                     return (
                       <TableRow key={pos.symbol}>
                         <TableCell className="font-medium">{pos.symbol}</TableCell>
-                        <TableCell>{pos.shares}</TableCell>
-                        <TableCell>{formatCurrency(pos.entry_price)}</TableCell>
-                        <TableCell>{formatCurrency(pos.current_price)}</TableCell>
-                        <TableCell>{formatCurrency(pos.current_value)}</TableCell>
+                        <TableCell>{formatShares(pos.shares)}</TableCell>
+                        <TableCell>{formatCurrency(pos.entry_price, { fxRateToUsd: portfolioFxRate, currency })}</TableCell>
+                        <TableCell>{formatCurrency(pos.current_price, { fxRateToUsd: portfolioFxRate, currency })}</TableCell>
+                        <TableCell>{formatCurrency(pos.current_value, { fxRateToUsd: portfolioFxRate, currency })}</TableCell>
                         <TableCell className={`text-right font-medium ${isPositive ? "text-green-600" : "text-red-600"}`}>
-                          {formatCurrency(pos.pnl_usd)} ({formatPercent(pos.pnl_percent)})
+                          {formatCurrency(pos.pnl_usd, { fxRateToUsd: portfolioFxRate, currency })} ({formatPercent(pos.pnl_percent)})
                         </TableCell>
                       </TableRow>
                     );
@@ -143,7 +151,7 @@ export default function Dashboard() {
                     <TableRow>
                       <TableCell className="font-medium">Cash</TableCell>
                       <TableCell colSpan={3}>Uninvested</TableCell>
-                      <TableCell>{formatCurrency(portfolio.uninvested_cash || 0)}</TableCell>
+                      <TableCell>{formatCurrency(portfolio.uninvested_cash || 0, { fxRateToUsd: portfolioFxRate, currency })}</TableCell>
                       <TableCell className="text-right">-</TableCell>
                     </TableRow>
                   )}
@@ -206,7 +214,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="capital">Initial Capital (USD)</Label>
+              <Label htmlFor="capital">Initial Capital ({currency})</Label>
               <Input id="capital" type="number" placeholder="10000" value={capital} onChange={(e) => setCapital(e.target.value)} min="0" step="100" />
               <p className="text-sm text-muted-foreground">Leave empty to calculate from your current portfolio</p>
             </div>
@@ -276,7 +284,7 @@ export default function Dashboard() {
 
           <div className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="dialog-capital">Capital (USD)</Label>
+              <Label htmlFor="dialog-capital">Capital ({currency})</Label>
               <Input
                 id="dialog-capital"
                 type="number"

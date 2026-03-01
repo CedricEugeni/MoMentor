@@ -14,7 +14,10 @@ MoMentor is a momentum investing strategy mentor for US stocks. It generates mon
   - Portfolio: 30% Vanguard S&P 500 ETF + 70% split across top 4 ranked stocks
 - **Monthly Automated Runs**: Scheduled execution on the 1st of each month
 - **Two Rebalancing Views**: Cashflow (sell then buy) or swap strategies
+- **Global Currency Switch**: Display values in USD or EUR across the application
+  - Runs generated with EUR input use a fixed EUR/USD rate saved at run creation time
 - **Position Confirmation**: Track actual positions with live Yahoo Finance prices
+- **Fractional Shares Support**: Buy/sell/swap suggestions and confirmations support up to 4 decimal places
 - **Performance Tracking**: P&L and returns since first validation
 
 ## How It Works
@@ -51,7 +54,7 @@ docker compose up
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000/health
 
-3. **First use**: Generate your first run from the Dashboard with your starting capital
+3. **First use**: Generate your first run from the Dashboard with your starting capital (USD or EUR)
 
 4. **Stop the application**
 

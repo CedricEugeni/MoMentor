@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { getCurrentPortfolio } from "@/lib/api";
-import { formatCurrency, formatPercent, formatDate } from "@/lib/utils";
+import { useCurrencyPreference } from "@/lib/currency";
+import { formatCurrency, formatPercent, formatDate, formatShares } from "@/lib/utils";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 export default function Portfolio() {
+  const { currency } = useCurrencyPreference();
   const { data: portfolio, isLoading } = useQuery({
     queryKey: ["portfolio"],
     queryFn: getCurrentPortfolio,
@@ -44,6 +45,7 @@ export default function Portfolio() {
   }
 
   const totalPnLPositive = (portfolio.total_pnl_usd || 0) >= 0;
+  const fxRate = portfolio.fx_rate_to_usd || 1;
 
   return (
     <div className="space-y-6">
@@ -60,7 +62,7 @@ export default function Portfolio() {
             <CardTitle className="text-sm font-medium">Entry Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(portfolio.total_entry_value || 0)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(portfolio.total_entry_value || 0, { currency, fxRateToUsd: fxRate })}</div>
           </CardContent>
         </Card>
 
@@ -69,7 +71,7 @@ export default function Portfolio() {
             <CardTitle className="text-sm font-medium">Current Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(portfolio.total_current_value || 0)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(portfolio.total_current_value || 0, { currency, fxRateToUsd: fxRate })}</div>
           </CardContent>
         </Card>
 
@@ -80,7 +82,7 @@ export default function Portfolio() {
           <CardContent>
             <div className={`text-2xl font-bold flex items-center space-x-2 ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>
               {totalPnLPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-              <span>{formatCurrency(portfolio.total_pnl_usd || 0)}</span>
+              <span>{formatCurrency(portfolio.total_pnl_usd || 0, { currency, fxRateToUsd: fxRate })}</span>
             </div>
             <p className={`text-sm ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>{formatPercent(portfolio.total_pnl_percent || 0)}</p>
           </CardContent>
@@ -102,7 +104,7 @@ export default function Portfolio() {
                 <TableHead>Current Price</TableHead>
                 <TableHead>Entry Value</TableHead>
                 <TableHead>Current Value</TableHead>
-                <TableHead className="text-right">P&L (USD)</TableHead>
+                <TableHead className="text-right">P&L ({currency})</TableHead>
                 <TableHead className="text-right">P&L (%)</TableHead>
               </TableRow>
             </TableHeader>
@@ -112,13 +114,13 @@ export default function Portfolio() {
                 return (
                   <TableRow key={pos.symbol}>
                     <TableCell className="font-medium">{pos.symbol}</TableCell>
-                    <TableCell>{pos.shares}</TableCell>
-                    <TableCell>{formatCurrency(pos.entry_price)}</TableCell>
-                    <TableCell>{formatCurrency(pos.current_price)}</TableCell>
-                    <TableCell>{formatCurrency(pos.entry_value)}</TableCell>
-                    <TableCell>{formatCurrency(pos.current_value)}</TableCell>
+                    <TableCell>{formatShares(pos.shares)}</TableCell>
+                    <TableCell>{formatCurrency(pos.entry_price, { currency, fxRateToUsd: fxRate })}</TableCell>
+                    <TableCell>{formatCurrency(pos.current_price, { currency, fxRateToUsd: fxRate })}</TableCell>
+                    <TableCell>{formatCurrency(pos.entry_value, { currency, fxRateToUsd: fxRate })}</TableCell>
+                    <TableCell>{formatCurrency(pos.current_value, { currency, fxRateToUsd: fxRate })}</TableCell>
                     <TableCell className={`text-right font-medium ${isPositive ? "text-green-600" : "text-red-600"}`}>
-                      {formatCurrency(pos.pnl_usd)}
+                      {formatCurrency(pos.pnl_usd, { currency, fxRateToUsd: fxRate })}
                     </TableCell>
                     <TableCell className={`text-right ${isPositive ? "text-green-600" : "text-red-600"}`}>{formatPercent(pos.pnl_percent)}</TableCell>
                   </TableRow>
@@ -128,7 +130,7 @@ export default function Portfolio() {
                 <TableRow>
                   <TableCell className="font-medium">Cash</TableCell>
                   <TableCell colSpan={4}>Uninvested</TableCell>
-                  <TableCell>{formatCurrency(portfolio.uninvested_cash || 0)}</TableCell>
+                  <TableCell>{formatCurrency(portfolio.uninvested_cash || 0, { currency, fxRateToUsd: fxRate })}</TableCell>
                   <TableCell className="text-right">-</TableCell>
                   <TableCell className="text-right">-</TableCell>
                 </TableRow>
@@ -136,9 +138,9 @@ export default function Portfolio() {
               <TableRow className="font-bold bg-muted/50">
                 <TableCell>Total</TableCell>
                 <TableCell colSpan={4}></TableCell>
-                <TableCell>{formatCurrency(portfolio.total_current_value || 0)}</TableCell>
+                <TableCell>{formatCurrency(portfolio.total_current_value || 0, { currency, fxRateToUsd: fxRate })}</TableCell>
                 <TableCell className={`text-right ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>
-                  {formatCurrency(portfolio.total_pnl_usd || 0)}
+                  {formatCurrency(portfolio.total_pnl_usd || 0, { currency, fxRateToUsd: fxRate })}
                 </TableCell>
                 <TableCell className={`text-right ${totalPnLPositive ? "text-green-600" : "text-red-600"}`}>
                   {formatPercent(portfolio.total_pnl_percent || 0)}

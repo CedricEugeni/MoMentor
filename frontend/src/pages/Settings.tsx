@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { resetDatabase } from "@/lib/api";
 import { clearAllPendingConfirmations } from "@/lib/localStorage";
+import { CurrencyPreference, useCurrencyPreference } from "@/lib/currency";
 import { applyTheme, getThemePreference, setThemePreference, ThemePreference } from "@/lib/theme";
 import { AlertTriangle } from "lucide-react";
 
 export default function Settings() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>("system");
+  const { currency, setCurrency } = useCurrencyPreference();
 
   useEffect(() => {
     const current = getThemePreference();
@@ -31,6 +33,10 @@ export default function Settings() {
   const handleThemeChange = (value: ThemePreference) => {
     setThemePreferenceState(value);
     setThemePreference(value);
+  };
+
+  const handleCurrencyChange = (value: CurrencyPreference) => {
+    setCurrency(value);
   };
 
   return (
@@ -78,12 +84,30 @@ export default function Settings() {
               <strong>Market Data:</strong> Yahoo Finance (Free, 15min delayed)
             </p>
             <p>
-              <strong>Currency:</strong> USD only
+              <strong>Currency:</strong> USD/EUR switch (display) - USD canonical backend
             </p>
             <p>
               <strong>Auto-Scheduling:</strong> Enabled (11:00 Paris Time, 1st of each month)
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Currency</CardTitle>
+          <CardDescription>Choose your preferred display currency across the app</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button variant={currency === "USD" ? "default" : "outline"} onClick={() => handleCurrencyChange("USD")}>
+              USD
+            </Button>
+            <Button variant={currency === "EUR" ? "default" : "outline"} onClick={() => handleCurrencyChange("EUR")}>
+              EUR
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">Runs generated with EUR input use a fixed EUR/USD rate saved at creation time.</p>
         </CardContent>
       </Card>
 

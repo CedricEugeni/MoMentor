@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutDashboard, List, TrendingUp, Settings as SettingsIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { hasPendingRuns } from "@/lib/api";
+import { useCurrencyPreference } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
 export default function Layout() {
   const location = useLocation();
   const [hasPending, setHasPending] = useState(false);
+  const { currency, setCurrency } = useCurrencyPreference();
 
   const { data } = useQuery({
     queryKey: ["pendingRuns"],
@@ -59,6 +62,15 @@ export default function Layout() {
                 );
               })}
             </nav>
+
+            <div className="flex items-center gap-2">
+              <Button variant={currency === "USD" ? "default" : "outline"} size="sm" onClick={() => setCurrency("USD")}>
+                USD
+              </Button>
+              <Button variant={currency === "EUR" ? "default" : "outline"} size="sm" onClick={() => setCurrency("EUR")}>
+                EUR
+              </Button>
+            </div>
           </div>
         </div>
       </header>

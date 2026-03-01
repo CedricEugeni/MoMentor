@@ -1,5 +1,6 @@
 """Portfolio calculation service"""
 from decimal import Decimal
+from datetime import datetime
 from typing import Tuple
 from sqlalchemy.orm import Session
 
@@ -52,7 +53,7 @@ class PortfolioService:
                 for position in actual_positions:
                     current_price = current_prices.get(position.symbol)
                     if current_price:
-                        position_value = Decimal(position.actual_shares) * current_price
+                        position_value = Decimal(str(position.actual_shares)) * current_price
                         total_value += position_value
             except Exception:
                 # If prices unavailable, use stored values
@@ -98,6 +99,14 @@ class PortfolioService:
         # Get current prices
         symbols = [pos.symbol for pos in actual_positions] if actual_positions else []
         current_prices = {}
+        fx_rate_to_usd = Decimal("1")
+        fx_rate_timestamp_utc = datetime.utcnow().isoformat()
+
+        try:
+            fx_rate_to_usd = self.market_data_service.get_eur_usd_rate()
+            fx_rate_timestamp_utc = datetime.utcnow().isoformat()
+        except Exception:
+            pass
         
         if symbols:
             try:
@@ -106,7 +115,9 @@ class PortfolioService:
                 return {
                     "has_portfolio": True,
                     "error": f"Cannot fetch current prices: {str(e)}",
-                    "positions": []
+                    "positions": [],
+                    "fx_rate_to_usd": float(fx_rate_to_usd),
+                    "fx_rate_timestamp_utc": fx_rate_timestamp_utc
                 }
         
         # Calculate PnL for each position
@@ -116,7 +127,7 @@ class PortfolioService:
         
         for position in actual_positions:
             current_price = current_prices.get(position.symbol, position.actual_avg_price_usd)
-            current_value = Decimal(position.actual_shares) * current_price
+            current_value = Decimal(str(position.actual_shares)) * current_price
             entry_value = position.total_value_usd
             
             pnl_usd = current_value - entry_value
@@ -124,7 +135,7 @@ class PortfolioService:
             
             positions_data.append({
                 "symbol": position.symbol,
-                "shares": position.actual_shares,
+                "shares": float(position.actual_shares),
                 "entry_price": float(position.actual_avg_price_usd),
                 "current_price": float(current_price),
                 "entry_value": float(entry_value),
@@ -155,5 +166,7 @@ class PortfolioService:
             "total_entry_value": float(total_entry_value),
             "total_current_value": float(total_current_value),
             "total_pnl_usd": float(total_pnl_usd),
-            "total_pnl_percent": float(total_pnl_percent)
+            "total_pnl_percent": float(total_pnl_percent),
+            "fx_rate_to_usd": float(fx_rate_to_usd),
+            "fx_rate_timestamp_utc": fx_rate_timestamp_utc
         }

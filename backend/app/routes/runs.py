@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Literal
 from decimal import Decimal
 from datetime import datetime
 
@@ -18,12 +18,13 @@ class GenerateRunRequest(BaseModel):
     """Request to generate a new run"""
     mode: str  # "monthly", "manual", "test"
     capital: Optional[float] = None
+    capital_currency: Literal["USD", "EUR"] = "USD"
 
 
 class PositionConfirmation(BaseModel):
     """Position confirmation from user"""
     symbol: str
-    shares: int
+    shares: float
     avg_price: float
 
 
@@ -38,12 +39,13 @@ class ConfirmPositionsRequest(BaseModel):
 async def generate_run(request: GenerateRunRequest, db: Session = Depends(get_db)):
     """Generate a new algorithm run with recommendations"""
     try:
-        manual_capital = Decimal(str(request.capital)) if request.capital else None
+        manual_capital = Decimal(str(request.capital)) if request.capital is not None else None
         
         run = generate_algorithm_run(
             db=db,
             mode=request.mode,
-            manual_capital=manual_capital
+            manual_capital=manual_capital,
+            capital_currency=request.capital_currency
         )
         
         return {
@@ -51,6 +53,9 @@ async def generate_run(request: GenerateRunRequest, db: Session = Depends(get_db
             "run_date": run.run_date.isoformat(),
             "trigger_type": run.trigger_type.value,
             "total_capital_usd": float(run.total_capital_usd),
+            "input_currency": run.input_currency,
+            "fx_rate_to_usd": float(run.fx_rate_to_usd),
+            "fx_rate_timestamp_utc": run.fx_rate_timestamp_utc.isoformat() if run.fx_rate_timestamp_utc else None,
             "status": run.status.value
         }
         
@@ -89,6 +94,9 @@ async def list_runs(db: Session = Depends(get_db)):
                 "run_date": run.run_date.isoformat(),
                 "trigger_type": run.trigger_type.value,
                 "total_capital_usd": float(run.total_capital_usd),
+                "input_currency": run.input_currency,
+                "fx_rate_to_usd": float(run.fx_rate_to_usd),
+                "fx_rate_timestamp_utc": run.fx_rate_timestamp_utc.isoformat() if run.fx_rate_timestamp_utc else None,
                 "status": run.status.value,
                 "created_at": run.created_at.isoformat()
             }
@@ -120,7 +128,7 @@ async def get_run_details(run_id: int, db: Session = Depends(get_db)):
         {
             "symbol": move.symbol,
             "action": move.action.value,
-            "suggested_shares": move.suggested_shares,
+            "suggested_shares": float(move.suggested_shares),
             "suggested_value_usd": float(move.suggested_value_usd),
             "order_index": move.order_index
         }
@@ -132,8 +140,8 @@ async def get_run_details(run_id: int, db: Session = Depends(get_db)):
         {
             "from_symbol": move.from_symbol,
             "to_symbol": move.to_symbol,
-            "swap_shares_from": move.swap_shares_from,
-            "swap_shares_to": move.swap_shares_to,
+            "swap_shares_from": float(move.swap_shares_from) if move.swap_shares_from is not None else None,
+            "swap_shares_to": float(move.swap_shares_to) if move.swap_shares_to is not None else None,
             "swap_value_usd": float(move.swap_value_usd),
             "order_index": move.order_index,
             "description": _format_swap_description(move)
@@ -149,7 +157,7 @@ async def get_run_details(run_id: int, db: Session = Depends(get_db)):
         actual_positions = [
             {
                 "symbol": pos.symbol,
-                "actual_shares": pos.actual_shares,
+                "actual_shares": float(pos.actual_shares),
                 "actual_avg_price_usd": float(pos.actual_avg_price_usd),
                 "total_value_usd": float(pos.total_value_usd),
                 "first_validation_date": pos.first_validation_date.isoformat()
@@ -166,6 +174,10 @@ async def get_run_details(run_id: int, db: Session = Depends(get_db)):
         "trigger_type": run.trigger_type.value,
         "total_capital_usd": float(run.total_capital_usd),
         "uninvested_cash_usd": float(run.uninvested_cash_usd),
+        "input_currency": run.input_currency,
+        "fx_rate_to_usd": float(run.fx_rate_to_usd),
+        "fx_rate_timestamp_utc": run.fx_rate_timestamp_utc.isoformat() if run.fx_rate_timestamp_utc else None,
+        "allocation_residual_cash_usd": float(run.allocation_residual_cash_usd),
         "status": run.status.value,
         "created_at": run.created_at.isoformat(),
         "recommendations": recommendations,
@@ -192,7 +204,7 @@ async def confirm_positions(
         raise HTTPException(status_code=400, detail="Run already completed")
     
     # Calculate total value from positions
-    total_value = sum(pos.shares * Decimal(str(pos.avg_price)) for pos in request.positions)
+    total_value = sum(Decimal(str(pos.shares)) * Decimal(str(pos.avg_price)) for pos in request.positions)
     total_value += Decimal(str(request.uninvested_cash))
     
     # Check for significant discrepancy (>10%)
@@ -229,9 +241,9 @@ async def confirm_positions(
         position = ActualPosition(
             run_id=run.id,
             symbol=pos_data.symbol,
-            actual_shares=pos_data.shares,
+            actual_shares=Decimal(str(pos_data.shares)),
             actual_avg_price_usd=Decimal(str(pos_data.avg_price)),
-            total_value_usd=Decimal(pos_data.shares) * Decimal(str(pos_data.avg_price)),
+            total_value_usd=(Decimal(str(pos_data.shares)) * Decimal(str(pos_data.avg_price))).quantize(Decimal("0.01")),
             first_validation_date=validation_date
         )
         db.add(position)
@@ -259,11 +271,17 @@ async def confirm_positions(
 
 def _format_swap_description(move):
     """Format swap move description"""
+    def fmt(value):
+        if value is None:
+            return ""
+        formatted = f"{float(value):.4f}".rstrip("0").rstrip(".")
+        return formatted or "0"
+
     if move.from_symbol and move.to_symbol:
-        return f"Vendre {move.swap_shares_from} {move.from_symbol} → Acheter {move.swap_shares_to} {move.to_symbol}"
+        return f"Vendre {fmt(move.swap_shares_from)} {move.from_symbol} → Acheter {fmt(move.swap_shares_to)} {move.to_symbol}"
     elif move.from_symbol:
-        return f"Vendre {move.swap_shares_from} {move.from_symbol}"
+        return f"Vendre {fmt(move.swap_shares_from)} {move.from_symbol}"
     elif move.to_symbol:
-        return f"Acheter {move.swap_shares_to} {move.to_symbol}"
+        return f"Acheter {fmt(move.swap_shares_to)} {move.to_symbol}"
     else:
         return "Unknown move"

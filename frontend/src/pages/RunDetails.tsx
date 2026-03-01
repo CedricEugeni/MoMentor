@@ -10,9 +10,38 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getRunDetails, confirmPositions } from "@/lib/api";
+import { useCurrencyPreference } from "@/lib/currency";
 import { getPendingConfirmation, savePendingConfirmation, removePendingConfirmation } from "@/lib/localStorage";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatShares } from "@/lib/utils";
 import { ArrowDown, ArrowUp, ArrowRight, AlertTriangle } from "lucide-react";
+
+interface PositionPayload {
+  symbol: string;
+  shares: number;
+  avg_price: number;
+}
+
+interface ConfirmWarningResponse {
+  warning?: boolean;
+  code?: string;
+  message?: string;
+  discrepancy_percent?: number;
+  total_value?: number;
+  expected_value?: number;
+}
+
+interface ApiErrorShape {
+  response?: {
+    data?: {
+      detail?: {
+        error?: string;
+        message?: string;
+      };
+      message?: string;
+    };
+  };
+  message?: string;
+}
 
 export default function RunDetails() {
   const { runId } = useParams();
@@ -20,9 +49,10 @@ export default function RunDetails() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [positions, setPositions] = useState<Record<string, { shares: string; price: string }>>({});
   const [uninvestedCash, setUninvestedCash] = useState("");
-  const [warningData, setWarningData] = useState<any>(null);
+  const [warningData, setWarningData] = useState<ConfirmWarningResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [marketDataUnavailable, setMarketDataUnavailable] = useState(false);
+  const { currency } = useCurrencyPreference();
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run", runId],
@@ -50,8 +80,9 @@ export default function RunDetails() {
   }, [run]);
 
   const confirmMutation = useMutation({
-    mutationFn: (data: { positions: any[]; cash: number; force: boolean }) => confirmPositions(Number(runId), data.positions, data.cash, data.force),
-    onSuccess: (response) => {
+    mutationFn: (data: { positions: PositionPayload[]; cash: number; force: boolean }) =>
+      confirmPositions(Number(runId), data.positions, data.cash, data.force),
+    onSuccess: (response: ConfirmWarningResponse) => {
       if (response.warning) {
         setWarningData(response);
       } else {
@@ -67,35 +98,44 @@ export default function RunDetails() {
         setMarketDataUnavailable(false);
       }
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       // Handle market data unavailable (503) or other errors
-      const posArray = Object.entries(positions).map(([symbol, data]) => ({
-        symbol,
-        shares: parseInt(data.shares),
-        avg_price: parseFloat(data.price),
-      }));
+      const posArray = Object.entries(positions)
+        .filter(([, data]) => data.shares && data.price)
+        .map(([symbol, data]) => ({
+          symbol,
+          shares: parseFloat(data.shares),
+          avg_price: parseFloat(data.price),
+        }));
       savePendingConfirmation(run!.id, posArray, parseFloat(uninvestedCash));
 
-      const isMarketDataUnavailable = error?.response?.data?.detail?.error === "MARKET_DATA_UNAVAILABLE";
+      const apiError = error as ApiErrorShape;
+
+      const isMarketDataUnavailable = apiError?.response?.data?.detail?.error === "MARKET_DATA_UNAVAILABLE";
       const errorMessage =
-        error?.response?.data?.detail?.message || error?.response?.data?.message || error?.message || "An error occurred while confirming positions";
+        apiError?.response?.data?.detail?.message ||
+        apiError?.response?.data?.message ||
+        apiError?.message ||
+        "An error occurred while confirming positions";
       setError(errorMessage);
       setMarketDataUnavailable(isMarketDataUnavailable);
     },
   });
 
   const handleConfirm = (force = false) => {
+    const fxRate = run?.fx_rate_to_usd || 1;
+
     const posArray = Object.entries(positions)
-      .filter(([_, data]) => data.shares && data.price)
+      .filter(([, data]) => data.shares && data.price)
       .map(([symbol, data]) => ({
         symbol,
-        shares: parseInt(data.shares),
-        avg_price: parseFloat(data.price),
+        shares: parseFloat(data.shares),
+        avg_price: currency === "EUR" ? parseFloat(data.price) * fxRate : parseFloat(data.price),
       }));
 
     confirmMutation.mutate({
       positions: posArray,
-      cash: parseFloat(uninvestedCash) || 0,
+      cash: currency === "EUR" ? (parseFloat(uninvestedCash) || 0) * fxRate : parseFloat(uninvestedCash) || 0,
       force,
     });
   };
@@ -112,6 +152,8 @@ export default function RunDetails() {
     setPositions(posMap);
     setShowConfirmDialog(true);
   };
+
+  const runFxRate = run.fx_rate_to_usd || 1;
 
   return (
     <div className="space-y-6">
@@ -132,7 +174,7 @@ export default function RunDetails() {
             <CardTitle className="text-sm font-medium">Total Capital</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(run.total_capital_usd)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(run.total_capital_usd, { currency, fxRateToUsd: runFxRate })}</div>
           </CardContent>
         </Card>
         <Card>
@@ -140,10 +182,22 @@ export default function RunDetails() {
             <CardTitle className="text-sm font-medium">Uninvested Cash</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(run.uninvested_cash_usd)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(run.uninvested_cash_usd, { currency, fxRateToUsd: runFxRate })}</div>
           </CardContent>
         </Card>
       </div>
+
+      {run.allocation_residual_cash_usd > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Allocation Residual Cash</CardTitle>
+            <CardDescription>Cash left because of share precision and market price constraints.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-semibold">{formatCurrency(run.allocation_residual_cash_usd, { currency, fxRateToUsd: runFxRate })}</div>
+          </CardContent>
+        </Card>
+      )}
 
       {run.status === "pending" && (
         <Card className="border-orange-500">
@@ -181,7 +235,7 @@ export default function RunDetails() {
                   <TableRow>
                     <TableHead>Symbol</TableHead>
                     <TableHead>Percentage</TableHead>
-                    <TableHead className="text-right">Amount (USD)</TableHead>
+                    <TableHead className="text-right">Amount ({currency})</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -190,7 +244,7 @@ export default function RunDetails() {
                       <TableRow key={rec.symbol}>
                         <TableCell className="font-medium">{rec.symbol}</TableCell>
                         <TableCell>{(rec.target_percentage * 100).toFixed(2)}%</TableCell>
-                        <TableCell className="text-right">{formatCurrency(rec.target_amount_usd)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(rec.target_amount_usd, { currency, fxRateToUsd: runFxRate })}</TableCell>
                       </TableRow>
                     ))
                   ) : (
@@ -220,7 +274,7 @@ export default function RunDetails() {
                     <TableHead>Action</TableHead>
                     <TableHead>Symbol</TableHead>
                     <TableHead>Shares</TableHead>
-                    <TableHead className="text-right">Value (USD)</TableHead>
+                    <TableHead className="text-right">Value ({currency})</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -242,8 +296,8 @@ export default function RunDetails() {
                           </Badge>
                         </TableCell>
                         <TableCell className="font-medium">{move.symbol}</TableCell>
-                        <TableCell>{move.suggested_shares}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(move.suggested_value_usd)}</TableCell>
+                        <TableCell>{formatShares(move.suggested_shares)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(move.suggested_value_usd, { currency, fxRateToUsd: runFxRate })}</TableCell>
                       </TableRow>
                     ))
                   ) : (
@@ -276,20 +330,20 @@ export default function RunDetails() {
                           {move.from_symbol && (
                             <>
                               <span className="font-medium">
-                                Vendre {move.swap_shares_from} {move.from_symbol}
+                                Vendre {move.swap_shares_from !== null ? formatShares(move.swap_shares_from) : "0"} {move.from_symbol}
                               </span>
                               <ArrowRight className="h-4 w-4" />
                             </>
                           )}
                           {move.to_symbol && (
                             <span className="font-medium">
-                              Acheter {move.swap_shares_to} {move.to_symbol}
+                              Acheter {move.swap_shares_to !== null ? formatShares(move.swap_shares_to) : "0"} {move.to_symbol}
                             </span>
                           )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-medium">{formatCurrency(move.swap_value_usd)}</div>
+                        <div className="font-medium">{formatCurrency(move.swap_value_usd, { currency, fxRateToUsd: runFxRate })}</div>
                       </div>
                     </div>
                   ))
@@ -322,16 +376,16 @@ export default function RunDetails() {
                     {run.actual_positions.map((pos) => (
                       <TableRow key={pos.symbol}>
                         <TableCell className="font-medium">{pos.symbol}</TableCell>
-                        <TableCell>{pos.actual_shares}</TableCell>
-                        <TableCell>{formatCurrency(pos.actual_avg_price_usd)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(pos.total_value_usd)}</TableCell>
+                        <TableCell>{formatShares(pos.actual_shares)}</TableCell>
+                        <TableCell>{formatCurrency(pos.actual_avg_price_usd, { currency, fxRateToUsd: runFxRate })}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(pos.total_value_usd, { currency, fxRateToUsd: runFxRate })}</TableCell>
                       </TableRow>
                     ))}
                     {run.actual_cash !== null && (
                       <TableRow>
                         <TableCell className="font-medium">Cash</TableCell>
                         <TableCell colSpan={2}>Uninvested</TableCell>
-                        <TableCell className="text-right">{formatCurrency(run.actual_cash)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(run.actual_cash, { currency, fxRateToUsd: runFxRate })}</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -356,7 +410,7 @@ export default function RunDetails() {
                 <div key={rec.symbol} className="flex items-center justify-between">
                   <span className="font-medium">{rec.symbol}</span>
                   <span className="text-muted-foreground">
-                    {(rec.target_percentage * 100).toFixed(2)}% ({formatCurrency(rec.target_amount_usd)})
+                    {(rec.target_percentage * 100).toFixed(2)}% ({formatCurrency(rec.target_amount_usd, { currency, fxRateToUsd: runFxRate })})
                   </span>
                 </div>
               ))}
@@ -374,6 +428,7 @@ export default function RunDetails() {
                   <Input
                     id={`${symbol}-shares`}
                     type="number"
+                    step="0.0001"
                     value={positions[symbol]?.shares || ""}
                     onChange={(e) =>
                       setPositions({
@@ -385,7 +440,7 @@ export default function RunDetails() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor={`${symbol}-price`}>Avg Price (USD)</Label>
+                  <Label htmlFor={`${symbol}-price`}>Avg Price ({currency})</Label>
                   <Input
                     id={`${symbol}-price`}
                     type="number"
@@ -404,7 +459,7 @@ export default function RunDetails() {
             ))}
 
             <div className="pt-4 border-t">
-              <Label htmlFor="cash">Uninvested Cash (USD)</Label>
+              <Label htmlFor="cash">Uninvested Cash ({currency})</Label>
               <Input
                 id="cash"
                 type="number"

@@ -5,11 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { listRuns } from "@/lib/api";
+import { useCurrencyPreference } from "@/lib/currency";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ChevronRight, Clock, CheckCircle2 } from "lucide-react";
 
 export default function Runs() {
   const navigate = useNavigate();
+  const { currency } = useCurrencyPreference();
   const { data, isLoading } = useQuery({
     queryKey: ["runs"],
     queryFn: listRuns,
@@ -52,7 +54,7 @@ export default function Runs() {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Capital</TableHead>
+                  <TableHead>Capital ({currency})</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -62,7 +64,7 @@ export default function Runs() {
                   <TableRow key={run.id} className="cursor-pointer hover:bg-muted/50">
                     <TableCell>{formatDate(run.run_date)}</TableCell>
                     <TableCell>{getTriggerBadge(run.trigger_type)}</TableCell>
-                    <TableCell>{formatCurrency(run.total_capital_usd)}</TableCell>
+                    <TableCell>{formatCurrency(run.total_capital_usd, { currency, fxRateToUsd: run.fx_rate_to_usd || 1 })}</TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         {getStatusIcon(run.status)}

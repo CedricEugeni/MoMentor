@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.database import engine, Base
+from app.migrations import run_schema_migrations
 from app.routes import runs, portfolio
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.config import settings
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup: Create tables and start scheduler
     Base.metadata.create_all(bind=engine)
+    run_schema_migrations(engine)
     
     if settings.ENABLE_AUTO_SCHEDULING:
         start_scheduler()

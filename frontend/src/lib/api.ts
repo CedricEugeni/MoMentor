@@ -15,6 +15,9 @@ export interface AlgorithmRun {
   run_date: string
   trigger_type: 'auto' | 'manual' | 'test'
   total_capital_usd: number
+  input_currency: 'USD' | 'EUR'
+  fx_rate_to_usd: number
+  fx_rate_timestamp_utc: string | null
   status: 'pending' | 'completed'
   created_at: string
 }
@@ -53,6 +56,7 @@ export interface ActualPosition {
 
 export interface RunDetails extends AlgorithmRun {
   uninvested_cash_usd: number
+  allocation_residual_cash_usd: number
   recommendations: Recommendation[]
   cashflow_moves: CashflowMove[]
   swap_moves: SwapMove[]
@@ -82,15 +86,18 @@ export interface Portfolio {
   total_current_value?: number
   total_pnl_usd?: number
   total_pnl_percent?: number
+  fx_rate_to_usd?: number
+  fx_rate_timestamp_utc?: string
   message?: string
   error?: string
 }
 
 // API calls
-export const generateRun = async (mode: string, capital?: number) => {
+export const generateRun = async (mode: string, capital?: number, capitalCurrency: 'USD' | 'EUR' = 'USD') => {
   const response = await api.post<{ run_id: number }>('/api/runs/generate', {
     mode,
     capital,
+    capital_currency: capitalCurrency,
   })
   return response.data
 }

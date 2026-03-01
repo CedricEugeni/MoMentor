@@ -61,6 +61,24 @@ class MarketDataService:
                 self._save_to_cache(symbol, price, now)
         
         return result
+
+    def get_eur_usd_rate(self) -> Decimal:
+        """Get EUR/USD FX rate (USD per 1 EUR) with cache fallback."""
+        fx_symbol = "EURUSD=X"
+
+        try:
+            prices = self.get_quotes([fx_symbol])
+            fx_rate = prices.get(fx_symbol)
+            if fx_rate and fx_rate > 0:
+                return fx_rate
+        except Exception:
+            pass
+
+        cached = self._get_from_cache(fx_symbol)
+        if cached and cached > 0:
+            return cached
+
+        raise MarketDataUnavailableError("Failed to fetch EUR/USD rate")
     
     def _fetch_from_yahoo(self, symbols: List[str], retry_count: int = 2) -> Dict[str, Decimal]:
         """
